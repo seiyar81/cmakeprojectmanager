@@ -18,3 +18,9 @@ moc_*.cpp
 qrc_*.cpp
 Makefile
 *-build-*
+
+.rcc
+.moc
+.obj
+debug
+release

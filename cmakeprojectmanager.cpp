@@ -512,6 +512,7 @@ QWidget *CMakeSettingsPage::createPage(QWidget *parent)
 	}
 	else
 	{
+        m_currentProject = "";
         m_projects->setCurrentIndex( 0 );
         projectChanged( m_projects->itemData( 0 ).toString() );
 	}

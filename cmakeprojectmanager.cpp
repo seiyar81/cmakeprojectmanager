@@ -43,7 +43,9 @@
 #include <coreplugin/coreconstants.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectexplorer.h>
+#include <projectexplorer/project.h>
 #include <projectexplorer/target.h>
+#include <projectexplorer/session.h>
 #include <utils/QtConcurrentTools>
 #include <QtConcurrentRun>
 #include <QCoreApplication>
@@ -57,7 +59,10 @@
 #include <QGroupBox>
 #include <QSpacerItem>
 #include <QSignalMapper>
-#include <QTreeWidget>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QPushButton>
+#include <QMessageBox>
 
 using namespace CMakeProjectManager::Internal;
 
@@ -82,21 +87,15 @@ CMakeManager::CMakeManager(CMakeSettingsPage *cmakeSettingsPage)
                                                                  Constants::RUNCMAKE, projectContext);
 
     command->setAttribute(Core::Command::CA_Hide);
-	//mbuild->addAction(command, ProjectExplorer::Constants::G_BUILD_DEPLOY);
     connect(m_runCMakeAction, SIGNAL(triggered()), this, SLOT(runCMake()));
-
-
-	//command->setAttribute(Core::Command::CA_Hide);
-	//mproject->addAction(command, ProjectExplorer::Constants::G_PROJECT_BUILD);
-	//msubproject->addAction(command, ProjectExplorer::Constants::G_PROJECT_BUILD);
 
 	Core::ActionContainer *menu = Core::ActionManager::createMenu(Constants::PROJECTCONTEXT);
 	menu->menu()->setTitle(tr("CMake"));
 	menu->addAction(command);
+	menu->addSeparator(projectContext);
 	mproject->addMenu(menu);
 	msubproject->addMenu(menu);
 	mbuild->addMenu(menu);
-
 
 	// Build CMake context menu
 	QAction *debugAct = new QAction(tr("Debug"), this);
@@ -176,8 +175,23 @@ void CMakeManager::runCMake(ProjectExplorer::Project *project, const QString & b
 ProjectExplorer::Project *CMakeManager::openProject(const QString &fileName, QString *errorString)
 {
     Q_UNUSED(errorString)
-    // TODO check whether this project is already opened
-    return new CMakeProject(this, fileName);
+	bool canOpen = true;
+	QList<ProjectExplorer::Project *> projects = ProjectExplorer::ProjectExplorerPlugin::instance()->session()->projects();
+	foreach(ProjectExplorer::Project *p, projects)
+	{
+		if(p->files( ProjectExplorer::Project::ExcludeGeneratedFiles ).contains(fileName))
+		{
+			canOpen = false;
+			break;
+		}
+	}
+	if(canOpen)
+		return new CMakeProject(this, fileName);
+	else
+	{
+		QMessageBox::critical(NULL, tr("Failed to open project"), tr("Project %1 is already opened").arg(fileName), QMessageBox::Ok);
+		return NULL;
+	}
 }
 
 QString CMakeManager::mimeType() const
@@ -208,6 +222,16 @@ bool CMakeManager::hasCodeBlocksMsvcGenerator() const
 bool CMakeManager::hasCodeBlocksNinjaGenerator() const
 {
     return m_settingsPage->hasCodeBlocksNinjaGenerator();
+}
+
+ProjectExplorer::Project* CMakeManager::currentProject()
+{
+    return m_contextProject;
+}
+
+CMakeSettingsPage *CMakeManager::settingsPage()
+{
+    return m_settingsPage;
 }
 
 // need to refactor this out
@@ -299,9 +323,6 @@ CMakeSettingsPage::CMakeSettingsPage()
        ProjectExplorer::Constants::PROJECTEXPLORER_SETTINGS_TR_CATEGORY));
     setCategoryIcon(QLatin1String(ProjectExplorer::Constants::PROJECTEXPLORER_SETTINGS_CATEGORY_ICON));
 
-	m_treeWidget = new QTreeWidget();
-	m_treeWidget->setHeaderLabels( QStringList() << tr("Property") << tr("Value") );
-
     m_userCmake.process = 0;
     m_pathCmake.process = 0;
     m_userCmake.hasCodeBlocksMsvcGenerator = false;
@@ -311,6 +332,17 @@ CMakeSettingsPage::CMakeSettingsPage()
     QSettings *settings = Core::ICore::settings();
     settings->beginGroup(QLatin1String("CMakeSettings"));
     m_userCmake.executable = settings->value(QLatin1String("cmakeExecutable")).toString();
+
+	settings->beginGroup("CMakeProjects");
+
+	foreach(QString id, settings->allKeys())
+	{
+		QVariantMap map;
+		map = settings->value( id ).toMap();
+		m_cmakeProperties.insert(id, map);
+	}
+
+	settings->endGroup();
     settings->endGroup();
 
     updateInfo(&m_userCmake);
@@ -341,6 +373,31 @@ void CMakeSettingsPage::userCmakeFinished()
 void CMakeSettingsPage::pathCmakeFinished()
 {
     cmakeFinished(&m_pathCmake);
+}
+
+void CMakeSettingsPage::addProperty()
+{
+	m_tableWidget->insertRow( m_tableWidget->currentRow() + 1 );
+}
+
+void CMakeSettingsPage::deleteProperty()
+{
+	int row = m_tableWidget->currentRow();
+
+	QTableWidgetItem *first = m_tableWidget->item(row, 0);
+
+	if(first)
+	{
+		if(QMessageBox::question(NULL, tr("Delete project property"),
+                                 tr("Do you really want to delete %1 property %2 ?").arg(m_currentProject).arg(first->text()),
+								 QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Ok)
+		{
+			m_tableWidget->removeRow( row );
+		}
+	}
+	else
+		m_tableWidget->removeRow( row );
+
 }
 
 void CMakeSettingsPage::cmakeFinished(CMakeValidator *cmakeValidator) const
@@ -399,7 +456,10 @@ CMakeSettingsPage::~CMakeSettingsPage()
         m_pathCmake.process->waitForFinished();
 	delete m_pathCmake.process;
 
-	delete m_treeWidget;
+	delete m_tableWidget;
+	delete m_projects;
+	delete m_addProperty;
+	delete m_deleteProperty;
 }
 
 QString CMakeSettingsPage::findCmakeExecutable() const
@@ -417,8 +477,52 @@ QWidget *CMakeSettingsPage::createPage(QWidget *parent)
     m_pathchooser->setExpectedKind(Utils::PathChooser::ExistingCommand);
     formLayout->addRow(tr("Executable:"), m_pathchooser);
     formLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Ignored, QSizePolicy::MinimumExpanding));
-	formLayout->addRow(tr("Arguments:"), m_treeWidget);
-	formLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Ignored, QSizePolicy::MinimumExpanding));
+
+	QHBoxLayout *hbox = new QHBoxLayout(outerWidget);
+	QVBoxLayout *vbox = new QVBoxLayout(outerWidget);
+
+	m_tableWidget = new QTableWidget();
+	m_tableWidget->setColumnCount(2);
+	m_tableWidget->horizontalHeader()->setResizeMode(QHeaderView::Stretch);
+	m_tableWidget->setHorizontalHeaderLabels( QStringList() << tr("Property") << tr("Value") );
+
+	m_addProperty = new QPushButton(tr("Add"));
+	m_addProperty->setMaximumWidth(100);
+	connect(m_addProperty, SIGNAL(clicked()), this, SLOT(addProperty()));
+	m_deleteProperty = new QPushButton(tr("Delete"));
+	m_deleteProperty->setMaximumWidth(100);
+	connect(m_deleteProperty, SIGNAL(clicked()), this, SLOT(deleteProperty()));
+
+	m_projects = new QComboBox();
+	QList<ProjectExplorer::Project *> projects = ProjectExplorer::ProjectExplorerPlugin::instance()->session()->projects();
+	foreach(ProjectExplorer::Project *p, projects)
+	{
+		CMakeProject* cp = qobject_cast<CMakeProject*>(p);
+		if(cp)
+			m_projects->addItem( p->displayName(), p->displayName() );
+	}
+	connect(m_projects, SIGNAL(currentIndexChanged(QString)), this, SLOT(projectChanged(QString)));
+	if(!m_projects->count())
+	{
+		m_currentProject = "";
+		m_addProperty->setEnabled(false);
+		m_deleteProperty->setEnabled(false);
+		m_tableWidget->setEnabled(false);
+		m_projects->setEnabled(false);
+	}
+	else
+	{
+        m_projects->setCurrentIndex( 0 );
+        projectChanged( m_projects->itemData( 0 ).toString() );
+	}
+
+	hbox->addWidget(m_tableWidget);
+	vbox->addWidget(m_addProperty);
+	vbox->addWidget(m_deleteProperty);
+	vbox->addWidget(m_projects);
+	hbox->addLayout(vbox);
+	formLayout->addRow(tr("Arguments:"), hbox);
+
     m_pathchooser->setPath(m_userCmake.executable);
     return outerWidget;
 }
@@ -441,11 +545,78 @@ void CMakeSettingsPage::saveSettings() const
     QSettings *settings = Core::ICore::settings();
     settings->beginGroup(QLatin1String("CMakeSettings"));
     settings->setValue(QLatin1String("cmakeExecutable"), m_userCmake.executable);
+	settings->beginGroup("CMakeProjects");
+	QHashIterator<QString, QVariantMap> it(m_cmakeProperties);
+	while(it.hasNext())
+	{
+		it.next();
+		settings->setValue( it.key(), it.value() );
+	}
+	settings->endGroup();
     settings->endGroup();
+}
+
+void CMakeSettingsPage::saveProjectSettings(const QString & project)
+{
+	if(project.length() > 0)
+	{
+		QVariantMap map;
+
+        for(int i = 0; i < m_tableWidget->rowCount(); i++)
+		{
+            QTableWidgetItem *first = m_tableWidget->item( i, 0 );
+            QTableWidgetItem *second = m_tableWidget->item( i, 1 );
+
+			if(first && second)
+                map.insert(first->text(), second->text());
+		}
+
+		m_cmakeProperties.insert(project, map);
+	}
+}
+
+void CMakeSettingsPage::projectChanged(QString project)
+{
+    if(m_currentProject.length())
+	{
+		// Save previous settings
+		saveProjectSettings(m_currentProject);
+	}
+
+    m_tableWidget->clear();
+    for(int i = 0; i < m_tableWidget->rowCount(); i++)
+        m_tableWidget->removeRow( i );
+    m_tableWidget->setHorizontalHeaderLabels( QStringList() << tr("Property") << tr("Value") );
+
+    QMap<QString, QVariant> properties = m_cmakeProperties.value(project);
+    if(properties.size())
+    {
+        QMapIterator<QString, QVariant> it(properties);
+        while(it.hasNext())
+        {
+            it.next();
+
+            int row = m_tableWidget->currentRow() + 1;
+            m_tableWidget->insertRow( row );
+            QTableWidgetItem *first = new QTableWidgetItem( it.key() );
+            QTableWidgetItem *second = new QTableWidgetItem( it.value().toString() );
+            m_tableWidget->setItem( row, 0, first );
+            m_tableWidget->setItem( row, 1, second );
+        }
+    }
+
+    m_currentProject = project;
+}
+
+QMap<QString,QVariant> CMakeSettingsPage::getArguments(const QString & project) const
+{
+    return m_cmakeProperties.value(project);
 }
 
 void CMakeSettingsPage::apply()
 {
+    saveProjectSettings(m_currentProject);
+	saveSettings();
     if (!m_pathchooser) // page was never shown
         return;
     if (m_userCmake.executable == m_pathchooser->path())
@@ -456,7 +627,7 @@ void CMakeSettingsPage::apply()
 
 void CMakeSettingsPage::finish()
 {
-
+	saveProjectSettings(m_currentProject);
 }
 
 QString CMakeSettingsPage::cmakeExecutable() const

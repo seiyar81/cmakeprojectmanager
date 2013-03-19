@@ -467,12 +467,19 @@ void CMakeRunPage::initWidgets()
 
     // Run CMake Line (with arguments)
     m_argumentsLineEdit = new Utils::FancyLineEdit(this);
-	//m_argumentsLineEdit->setHistoryCompleter(QLatin1String("CMakeArgumentsLineEdit"));
 
+    QString commandLineArguments = "";
 	if(m_buildType.length())
-		m_argumentsLineEdit->setText(
-					m_argumentsLineEdit->text() + " -DCMAKE_BUILD_TYPE=" + m_buildType
-					);
+        commandLineArguments += "-DCMAKE_BUILD_TYPE=" + m_buildType;
+
+    QMap<QString,QVariant> map = m_cmakeWizard->cmakeManager()->settingsPage()->getArguments(m_cmakeWizard->cmakeManager()->currentProject()->displayName());
+    QMapIterator< QString, QVariant > it(map);
+    while(it.hasNext())
+    {
+        it.next();
+        commandLineArguments += " -D"+it.key()+"="+it.value().toString();
+    }
+    m_argumentsLineEdit->setText( commandLineArguments.trimmed() );
 
     connect(m_argumentsLineEdit,SIGNAL(returnPressed()), this, SLOT(runCMake()));
     fl->addRow(tr("Arguments:"), m_argumentsLineEdit);

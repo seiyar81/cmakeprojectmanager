@@ -52,7 +52,9 @@ class QtcProcess;
 }
 
 class QSignalMapper;
-class QTreeWidget;
+class QTableWidget;
+class QComboBox;
+class QPushButton;
 
 namespace CMakeProjectManager {
 namespace Internal {
@@ -84,6 +86,10 @@ public:
     static QString findCbpFile(const QDir &);
 
     static QString findDumperLibrary(const Utils::Environment &env);
+
+    virtual ProjectExplorer::Project *currentProject();
+    CMakeSettingsPage * settingsPage();
+
 private slots:
     void updateContextMenu(ProjectExplorer::Project *project, ProjectExplorer::Node *node);
     void runCMake();
@@ -130,21 +136,33 @@ public:
     bool hasCodeBlocksMsvcGenerator() const;
     bool hasCodeBlocksNinjaGenerator() const;
 
+    QMap<QString,QVariant> getArguments(const QString &) const;
+
 private slots:
     void userCmakeFinished();
     void pathCmakeFinished();
 
+	void addProperty();
+	void deleteProperty();
+	void projectChanged(QString);
+
 private:
     void cmakeFinished(CMakeValidator *cmakeValidator) const;
     void saveSettings() const;
+	void saveProjectSettings(const QString &);
     QString findCmakeExecutable() const;
     void startProcess(CMakeValidator *cmakeValidator);
     void updateInfo(CMakeValidator *cmakeValidator);
 
     Utils::PathChooser *m_pathchooser;
-	QTreeWidget *m_treeWidget;
+	QTableWidget *m_tableWidget;
+	QPushButton *m_addProperty, *m_deleteProperty;
+	QComboBox *m_projects;
     mutable CMakeValidator m_userCmake;
     mutable CMakeValidator m_pathCmake;
+
+	QHash<QString, QVariantMap> m_cmakeProperties;
+	QString m_currentProject;
 };
 
 } // namespace Internal

@@ -87,10 +87,10 @@ public:
 
         QString sourceDirectory;
         QString buildDirectory;
-		QString buildType;
         Utils::Environment environment;
         bool useNinja;
         ProjectExplorer::Kit *kit;
+        QString buildType;
     };
 
     /// used at importing a project without a .user file

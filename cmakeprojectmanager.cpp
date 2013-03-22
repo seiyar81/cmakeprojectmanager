@@ -128,6 +128,8 @@ CMakeManager::CMakeManager(CMakeSettingsPage *cmakeSettingsPage)
 	menu->addAction(cmdRel);
 	menu->addAction(cmdMin);
 	menu->addAction(cmdReldeb);
+
+    m_contextProject = NULL;
 }
 
 void CMakeManager::updateContextMenu(ProjectExplorer::Project *project, ProjectExplorer::Node *node)

@@ -472,12 +472,15 @@ void CMakeRunPage::initWidgets()
 	if(m_buildType.length())
         commandLineArguments += "-DCMAKE_BUILD_TYPE=" + m_buildType;
 
-    QMap<QString,QVariant> map = m_cmakeWizard->cmakeManager()->settingsPage()->getArguments(m_cmakeWizard->cmakeManager()->currentProject()->displayName());
-    QMapIterator< QString, QVariant > it(map);
-    while(it.hasNext())
+    if(m_cmakeWizard->cmakeManager() && m_cmakeWizard->cmakeManager()->settingsPage() && m_cmakeWizard->cmakeManager()->currentProject())
     {
-        it.next();
-        commandLineArguments += " -D"+it.key()+"="+it.value().toString();
+        QMap<QString,QVariant> map = m_cmakeWizard->cmakeManager()->settingsPage()->getArguments(m_cmakeWizard->cmakeManager()->currentProject()->displayName());
+        QMapIterator< QString, QVariant > it(map);
+        while(it.hasNext())
+        {
+            it.next();
+            commandLineArguments += " -D"+it.key()+"="+it.value().toString();
+        }
     }
     m_argumentsLineEdit->setText( commandLineArguments.trimmed() );
 

@@ -586,10 +586,8 @@ void CMakeSettingsPage::projectChanged(QString project)
 		saveProjectSettings(m_currentProject);
 	}
 
-    m_tableWidget->clear();
-    for(int i = 0; i < m_tableWidget->rowCount(); i++)
-        m_tableWidget->removeRow( i );
-    m_tableWidget->setHorizontalHeaderLabels( QStringList() << tr("Property") << tr("Value") );
+    m_tableWidget->clearContents();
+    m_tableWidget->setRowCount(0);
 
     QMap<QString, QVariant> properties = m_cmakeProperties.value(project);
     if(properties.size())
